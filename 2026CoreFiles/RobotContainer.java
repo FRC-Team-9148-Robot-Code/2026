@@ -19,92 +19,79 @@ import frc.robot.subsystems.Shooter;
 
 // The robot's name: Megatron
 public class RobotContainer {
+    private double MaxSpeed = 1.0 * TunerConstants.kSpeedAt12Volts.in(MetersPerSecond);
+    private double MaxAngularRate = RotationsPerSecond.of(0.5).in(RadiansPerSecond);
 
-private double MaxSpeed = 1.0 * TunerConstants.kSpeedAt12Volts.in(MetersPerSecond);
-private double MaxAngularRate = RotationsPerSecond.of(0.5).in(RadiansPerSecond);
+    private final SwerveRequest.FieldCentric drive =
+    new SwerveRequest.FieldCentric()
+        .withDeadband(MaxSpeed * 0.1)
+        .withRotationalDeadband(MaxAngularRate * 0.1)
+        .withDriveRequestType(DriveRequestType.OpenLoopVoltage);
 
-private final SwerveRequest.FieldCentric drive =
-new SwerveRequest.FieldCentric()
-.withDeadband(MaxSpeed * 0.1)
-.withRotationalDeadband(MaxAngularRate * 0.1)
-.withDriveRequestType(DriveRequestType.OpenLoopVoltage);
+    private final SwerveRequest.SwerveDriveBrake brake = new SwerveRequest.SwerveDriveBrake();
 
-private final SwerveRequest.SwerveDriveBrake brake =
-new SwerveRequest.SwerveDriveBrake();
+    private final SwerveRequest.PointWheelsAt point = new SwerveRequest.PointWheelsAt();
 
-private final SwerveRequest.PointWheelsAt point =
-new SwerveRequest.PointWheelsAt();
+    /* Controllers */
+    private final Joystick m_driverJoystick = new Joystick(0);
+    private final CommandXboxController operatorController = new CommandXboxController(1);
 
-/* Controllers */
-private final Joystick m_driverJoystick = new Joystick(0);
-private final CommandXboxController operatorController = new CommandXboxController(1);
+    /* Subsystems */
+    public final CommandSwerveDrivetrain drivetrain = TunerConstants.createDrivetrain();
 
-/* Subsystems */
-public final CommandSwerveDrivetrain drivetrain =
-TunerConstants.createDrivetrain();
+    public final Shooter shooter = new Shooter();
 
-public final Shooter shooter = new Shooter();
+    public RobotContainer() {
+        /* REGISTER PATHPLANNER COMMANDS */
+        NamedCommands.registerCommand("shoot",shooter.shootCommand(() -> 1.0, false).withTimeout(1));
 
-public RobotContainer() {
+        configureBindings();
+    }
 
-/* REGISTER PATHPLANNER COMMANDS */
-NamedCommands.registerCommand(
-"shoot",shooter.shootCommand(() -> 1.0, false).withTimeout(1));
+    private void configureBindings() {
+        drivetrain.setDefaultCommand(
+            drivetrain.applyRequest(() ->
+                drive.withVelocityX(-m_driverJoystick.getY() * MaxSpeed)
+                .withVelocityY(-m_driverJoystick.getX() * MaxSpeed)
+                .withRotationalRate(-m_driverJoystick.getZ() * MaxAngularRate)
+            )
+        );
 
-configureBindings();
-}
+        shooter.setDefaultCommand(
+            shooter.shootCommand(this::getRightTrigger, false)
+        );
 
-private void configureBindings() {
+        operatorController.a().whileTrue(shooter.shootCommand(() -> 0.5, true));
 
-drivetrain.setDefaultCommand(
-drivetrain.applyRequest(() ->
-drive.withVelocityX(-m_driverJoystick.getY() * MaxSpeed)
-.withVelocityY(-m_driverJoystick.getX() * MaxSpeed)
-.withRotationalRate(-m_driverJoystick.getZ() * MaxAngularRate)
-)
-);
+        final var idle = new SwerveRequest.Idle();
 
-shooter.setDefaultCommand(
-shooter.shootCommand(this::getRightTrigger, false)
-);
+        RobotModeTriggers.disabled().whileTrue(
+            drivetrain.applyRequest(() -> idle).ignoringDisable(true)
+        );
 
-operatorController.a().whileTrue(
-shooter.shootCommand(() -> 0.5, true)
-);
+        // Reset gyro
+        new JoystickButton(m_driverJoystick, 2).onTrue(drivetrain.runOnce(drivetrain::seedFieldCentric));
+    }
 
-final var idle = new SwerveRequest.Idle();
+    public Command getAutonomousCommand() {
+        final var idle = new SwerveRequest.Idle();
 
-RobotModeTriggers.disabled().whileTrue(
-drivetrain.applyRequest(() -> idle).ignoringDisable(true)
-);
+        return Commands.sequence(
+            drivetrain.runOnce(() ->
+                drivetrain.seedFieldCentric(Rotation2d.kZero)
+            ),
+            drivetrain.applyRequest(() ->
+                drive.withVelocityX(0.5)
+                .withVelocityY(0)
+                .withRotationalRate(0)
+            ).withTimeout(5.0),
 
-// Reset gyro
-new JoystickButton(m_driverJoystick, 2)
-.onTrue(drivetrain.runOnce(drivetrain::seedFieldCentric));
-}
+            drivetrain.applyRequest(() -> idle)
+        );
+    }
 
-public Command getAutonomousCommand() {
-
-final var idle = new SwerveRequest.Idle();
-
-return Commands.sequence(
-
-drivetrain.runOnce(() ->
-drivetrain.seedFieldCentric(Rotation2d.kZero)
-),
-
-drivetrain.applyRequest(() ->
-drive.withVelocityX(0.5)
-.withVelocityY(0)
-.withRotationalRate(0)
-).withTimeout(5.0),
-
-drivetrain.applyRequest(() -> idle)
-);
-}
-
-public double getRightTrigger() {
-double value = operatorController.getRightTriggerAxis();
-return value < 0.1 ? 0 : value;
-}
+    public double getRightTrigger() {
+        double value = operatorController.getRightTriggerAxis();
+        return value < 0.1 ? 0 : value;
+    }
 }
